@@ -12,6 +12,10 @@ const sgn = n => (n < -0.005 ? 'neg' : n > 0.005 ? 'pos' : '');
 let S = load();
 let R = 'home';
 let D = null;
+let authState = 'unknown';   // unknown | out | in | local | blocked
+let workersLoaded = false;
+let syncText = '⚪ محلي';
+let pendingRender = false;
 
 function load() {
   try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.entries) return s; } catch (e) { }
@@ -30,6 +34,88 @@ function derive() {
   D.curStats = G.stats(L, F, D.cur.from, D.cur.to);
   D.bal = G.balances(L);
 }
+
+/* ---------- المزامنة وتسجيل الدخول ---------- */
+const syncBadge = () => `<span id="syncState" class="sst">${esc(authState === 'local' ? '⚪ محلي' : syncText)}</span>`;
+function sy(fn, arg) { try { if (window.Sync && window.Sync.ready) window.Sync[fn](arg); } catch (e) { } }
+window.getLocal = () => S;
+window.onSyncStatus = t => { syncText = t; const el = $('syncState'); if (el && authState === 'in') el.textContent = t; };
+window.onSyncError = c => toast(c === 'permission-denied' ? 'ارفض الخادم الطلب: راجع قواعد قاعدة البيانات' : 'خطأ مزامنة: ' + c);
+
+function rerender() {
+  if ($('modal').classList.contains('on')) { pendingRender = true; return; }
+  render();
+}
+window.onAuth = state => {
+  authState = state;
+  if (state === 'in') {
+    decideSyncMode();
+    workersLoaded = S.workers.length > 0;
+    setTimeout(() => { if (!workersLoaded) { workersLoaded = true; rerender(); } }, 8000);
+    window.Sync.start();
+  }
+  render();
+};
+function decideSyncMode() {
+  if (S.syncChoice) return;
+  if (S.entries.length || S.workers.length) {
+    const up = confirm('على هذا الجهاز بيانات (' + S.entries.length + ' عملية).\n\nموافق = رفعها ودمجها مع بيانات الفريق\nإلغاء = حذفها من هذا الجهاز والاعتماد على بيانات الفريق');
+    if (!up) { S.entries = []; S.workers = []; S.closes = []; }
+  }
+  S.syncChoice = true; save();
+}
+window.onRemote = (kind, items, confirmed) => {
+  let changed = false;
+  if (kind === 'entries') {
+    const ids = new Set(S.entries.map(e => e.id));
+    for (const e of items) if (!ids.has(e.id)) { S.entries.push(e); ids.add(e.id); changed = true; }
+  } else if (kind === 'workers') {
+    for (const w of items) {
+      const l = S.workers.find(x => x.id === w.id);
+      if (!l) { S.workers.push(w); changed = true; continue; }
+      for (const k of ['name', 'active', 'pct']) if (JSON.stringify(l[k]) !== JSON.stringify(w[k])) { if (w[k] === undefined) delete l[k]; else l[k] = w[k]; changed = true; }
+    }
+    if (confirmed || items.length) workersLoaded = true;
+    if (confirmed && !S.workers.length) changed = true;
+  } else if (kind === 'closes') {
+    const cs = new Set(S.closes);
+    for (const t of items) if (!cs.has(t)) { S.closes.push(t); cs.add(t); changed = true; }
+    S.closes.sort((a, b) => a - b);
+  }
+  if (changed) { save(); rerender(); }
+};
+function renderLoading(m) {
+  $('app').innerHTML = `<header><h1>نقطة الغاز</h1></header><main><div class="card mut" style="text-align:center;padding:30px">${esc(m)}</div></main>`;
+}
+function renderBlocked() {
+  $('app').innerHTML = `<header><h1>نقطة الغاز</h1></header><main><div class="card"><b>تعذّر تحميل نظام المزامنة</b>
+  <p class="mut">يلزم اتصال بالإنترنت في أول مرة. تأكد من الاتصال ثم أعد المحاولة.</p><button class="btn" onclick="location.reload()">إعادة المحاولة</button></div></main>`;
+}
+function renderLogin() {
+  let em = ''; try { em = localStorage.getItem('gas_email') || ''; } catch (e) { }
+  $('app').innerHTML = `<header><h1>نقطة الغاز</h1>${instBtn()}</header><main><div class="card"><b>تسجيل الدخول</b>
+  <p class="mut">أدخل بريد الفريق وكلمة السر (مرة واحدة على كل جهاز).</p>
+  <label>البريد</label><input id="lg_e" type="email" dir="ltr" value="${esc(em)}" autocomplete="username">
+  <label>كلمة السر</label><input id="lg_p" type="password" dir="ltr" autocomplete="current-password">
+  <div id="lg_m" class="prev warn" style="display:none"></div><div style="height:10px"></div>
+  <button class="btn" id="lg_b" onclick="doLogin()">دخول</button></div></main>`;
+}
+function lgErr(m) { const el = $('lg_m'); if (el) { el.textContent = m; el.style.display = 'block'; } }
+async function doLogin() {
+  const e = $('lg_e').value.trim(), p = $('lg_p').value;
+  if (!e || !p) return lgErr('اكتب البريد وكلمة السر');
+  if (!window.Sync) return lgErr('يلزم اتصال بالإنترنت لتحميل نظام الدخول');
+  $('lg_b').disabled = true;
+  try {
+    await window.Sync.login(e, p);
+    try { localStorage.setItem('gas_email', e); } catch (_) { }
+  } catch (err) {
+    $('lg_b').disabled = false;
+    const c = (err && err.code) || '';
+    lgErr(/invalid|wrong|not-found|credential/.test(c) ? 'البريد أو كلمة السر غير صحيحة' : /network/.test(c) ? 'تعذّر الاتصال بالإنترنت' : 'تعذّر الدخول: ' + c);
+  }
+}
+function logout() { if (confirm('تسجيل الخروج؟ تبقى بياناتك محفوظة على هذا الجهاز.') && window.Sync) window.Sync.logout(); }
 
 /* ---------- تثبيت التطبيق ---------- */
 let deferredInstall = null;
@@ -62,7 +148,13 @@ function go(r) {
 }
 
 function render() {
-  if (!S.workers.length) return renderSetup();
+  if (authState === 'unknown') return renderLoading('جارٍ التحميل...');
+  if (authState === 'blocked') return renderBlocked();
+  if (authState === 'out') return renderLogin();
+  if (!S.workers.length) {
+    if (authState === 'in' && !workersLoaded) return renderLoading('جارٍ جلب بيانات الفريق...');
+    return renderSetup();
+  }
   if (!S.me || !S.workers.find(w => w.id === S.me)) return renderWho();
   derive();
   const sub = SUB.includes(R);
@@ -78,7 +170,7 @@ function render() {
   else if (R === 'people') body = pagePeople();
   else if (R === 'backup') body = pageBackup();
   const fab = ['transfer', 'buy', 'sell', 'expense'].includes(R) ? `<button class="fab" onclick="openForm('${R}')">+</button>` : '';
-  $('app').innerHTML = `<header>${sub ? '<button onclick="go(\'more\')">→ رجوع</button>' : ''}<h1>${TITLES[R]}</h1>${instBtn()}<button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
+  $('app').innerHTML = `<header>${sub ? '<button onclick="go(\'more\')">→ رجوع</button>' : ''}<h1>${TITLES[R]}</h1>${syncBadge()}${instBtn()}<button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
   <main>${body}</main>${fab}
   <nav>${tabs.map(t => `<button class="${t[0] === active ? 'on' : ''}" onclick="go('${t[0]}')"><span class="i">${t[2]}</span>${t[1]}</button>`).join('')}</nav>`;
 }
@@ -93,7 +185,7 @@ function setupSave() {
   const names = $('names').value.split('\n').map(s => s.trim()).filter(Boolean);
   if (!names.length) return toast('اكتب اسماً واحداً على الأقل');
   S.workers = names.map(n => ({ id: uid(), name: n, active: true }));
-  S.me = null; save(); render();
+  S.me = null; save(); S.workers.forEach(w => sy('pushWorker', w)); render();
 }
 function renderWho() {
   $('app').innerHTML = `<header><h1>من أنت؟</h1>${instBtn()}</header><main><p class="mut">اختر اسمك ليُسجَّل باسمك كل ما تُدخله على هذا الجهاز.</p>
@@ -153,7 +245,8 @@ function card(e) {
 }
 function voidEntry(id) {
   if (!confirm('إلغاء هذه العملية؟ تبقى في السجل مشطوبة ولا تُحسب.')) return;
-  S.entries.push({ id: uid(), t: 'void', ts: Date.now(), ref: id, by: S.me });
+  const v = { id: uid(), t: 'void', ts: Date.now(), ref: id, by: S.me };
+  S.entries.push(v); sy('pushEntry', v);
   save(); render(); toast('تم الإلغاء');
 }
 
@@ -177,7 +270,7 @@ function openForm(t) {
   <div class="two"><button class="btn" id="f_save" onclick="saveForm('${t}')">حفظ</button><button class="btn sec" onclick="closeForm()">إلغاء</button></div>`;
   $('modal').classList.add('on');
 }
-function closeForm() { $('modal').classList.remove('on'); }
+function closeForm() { $('modal').classList.remove('on'); if (pendingRender) { pendingRender = false; render(); } }
 function calc(src) {
   const kg = $('f_kg'), ppk = $('f_ppk'), am = $('f_amount');
   if (kg) {
@@ -214,13 +307,14 @@ function saveForm(t) {
   }
   if (t === 'withdraw') e.to = $('f_to').value;
   $('f_save').disabled = true;
-  S.entries.push(e); save(); closeForm(); render(); toast('تم الحفظ');
+  S.entries.push(e); sy('pushEntry', e); save(); closeForm(); render(); toast('تم الحفظ');
 }
 
 /* ---------- المزيد ---------- */
 function pageMore() {
   const items = [['expense', '🧾', 'المصاريف'], ['money', '👛', 'أين المال'], ['profits', '📈', 'الأرباح والسحب'], ['periods', '🗓️', 'الفترات والتسوية'], ['people', '👥', 'العمال'], ['backup', '💾', 'نسخ ومزامنة يدوية']];
-  return `<div class="menu">${items.map(i => `<button onclick="go('${i[0]}')"><span>${i[1]}</span>${i[2]}</button>`).join('')}</div>`;
+  const out = authState === 'in' ? '<button onclick="logout()"><span>🚪</span>تسجيل الخروج من المزامنة</button>' : '';
+  return `<div class="menu">${items.map(i => `<button onclick="go('${i[0]}')"><span>${i[1]}</span>${i[2]}</button>`).join('')}${out}</div>`;
 }
 
 function pageMoney() {
@@ -272,7 +366,7 @@ function pagePeriods() {
 }
 function closePeriod() {
   if (!confirm('إغلاق الفترة الحالية وبدء فترة جديدة؟')) return;
-  S.closes.push(Date.now()); save(); render(); toast('تم إغلاق الفترة');
+  const ct = Date.now(); S.closes.push(ct); sy('pushClose', ct); save(); render(); toast('تم إغلاق الفترة');
 }
 
 function pagePeople() {
@@ -281,9 +375,9 @@ function pagePeople() {
   <label>نسبة من الأرباح % (فارغ = بالتساوي)</label><input type="number" inputmode="decimal" value="${w.pct || ''}" onchange="setPct('${w.id}',this.value)"></div>`).join('')}
   <div class="card"><label>إضافة عامل</label><input id="nw" type="text" placeholder="الاسم"><div style="height:8px"></div><button class="btn" onclick="addW()">إضافة</button></div>`;
 }
-function toggleW(id) { const w = S.workers.find(x => x.id === id); w.active = w.active === false; save(); render(); }
-function setPct(id, v) { const w = S.workers.find(x => x.id === id); w.pct = G.num(v) || 0; save(); toast('تم'); }
-function addW() { const n = $('nw').value.trim(); if (!n) return; S.workers.push({ id: uid(), name: n, active: true }); save(); render(); }
+function toggleW(id) { const w = S.workers.find(x => x.id === id); w.active = w.active === false; sy('pushWorker', w); save(); render(); }
+function setPct(id, v) { const w = S.workers.find(x => x.id === id); w.pct = G.num(v) || 0; sy('pushWorker', w); save(); toast('تم'); }
+function addW() { const n = $('nw').value.trim(); if (!n) return; const nw = { id: uid(), name: n, active: true }; S.workers.push(nw); sy('pushWorker', nw); save(); render(); }
 
 /* ---------- نسخ احتياطي ومزامنة يدوية ---------- */
 function pageBackup() {
@@ -305,8 +399,10 @@ function importData(inp) {
     try {
       const o = JSON.parse(r.result);
       if (!o || !Array.isArray(o.entries) || !Array.isArray(o.workers)) throw 0;
-      const me = S.me;
-      S = G.merge(S, o); S.me = me;
+      const me = S.me, before = new Set(S.entries.map(e => e.id)), choice = S.syncChoice;
+      S = G.merge(S, o); S.me = me; S.syncChoice = choice;
+      S.entries.filter(e => !before.has(e.id)).forEach(e => sy('pushEntry', e));
+      S.workers.forEach(w => sy('pushWorker', w)); S.closes.forEach(t => sy('pushClose', t));
       save(); render(); toast('تم الدمج');
     } catch (e) { toast('الملف غير صالح'); }
   };
@@ -314,4 +410,8 @@ function importData(inp) {
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+// إن لم يُحمَّل نظام المزامنة (دون إنترنت): نعمل محلياً إن كانت هناك بيانات
+setTimeout(() => {
+  if (authState === 'unknown') { authState = S.workers.length ? 'local' : 'blocked'; render(); }
+}, 4000);
 render();
