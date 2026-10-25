@@ -15,33 +15,27 @@
     return new Set(entries.filter(e => e.t === 'void').map(e => e.ref));
   }
 
-  // كل شراء = دفعة بسعرها، وكل بيع يُخصم من أقدم دفعة أولاً (FIFO) فيُحسب ربحه بدقة
+  // خزان واحد يختلط فيه الغاز: المتوسط المرجّح المتحرك.
+  // بعد كل شراء: سعر الكيلو = قيمة المخزون كلها ÷ كيلوات المخزون كلها، وكل بيع يُحسب به.
   function fifo(L) {
     const ev = L.filter(e => e.t === 'buy' || e.t === 'sell').sort(cmp);
-    const queue = [], all = {}, sales = {};
-    let short = 0;
+    const sales = {};
+    let stock = 0, value = 0, short = 0;
     for (const e of ev) {
       if (e.t === 'buy') {
-        const b = { id: e.id, kg: e.kg, left: e.kg, ppk: e.amount / e.kg, ts: e.ts };
-        queue.push(b); all[e.id] = b;
+        stock += e.kg; value += e.amount;
       } else {
-        let need = e.kg, cost = 0;
-        const parts = [];
-        while (need > EPS && queue.length) {
-          const b = queue[0];
-          const take = Math.min(b.left, need);
-          cost += take * b.ppk;
-          parts.push({ batch: b.id, kg: take, ppk: b.ppk });
-          b.left -= take; need -= take;
-          if (b.left <= EPS) { b.left = 0; queue.shift(); }
-        }
-        const miss = need > EPS ? need : 0;
+        const avg = stock > EPS ? value / stock : 0;
+        const take = Math.min(e.kg, Math.max(stock, 0));
+        const cost = take * avg;
+        const miss = e.kg - take > EPS ? e.kg - take : 0;
+        stock -= take; value -= cost;
+        if (stock <= EPS) { stock = 0; value = 0; }
         short += miss;
-        sales[e.id] = { cost, profit: e.amount - cost, parts, short: miss };
+        sales[e.id] = { cost, profit: e.amount - cost, avg, short: miss };
       }
     }
-    const stock = queue.reduce((s, b) => s + b.left, 0);
-    return { sales, batches: all, open: queue, stock, short };
+    return { sales, stock, value, avg: stock > EPS ? value / stock : 0, short, batches: {}, open: [] };
   }
 
   // أين المال: رصيد كل شخص = ما استلمه − ما دفعه (كاش/تطبيق)
