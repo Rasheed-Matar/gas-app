@@ -54,6 +54,21 @@
     return b;
   }
 
+  // تفصيل كل شخص: ما استلمه (نقل + بيع) وما دفعه (شراء + مصاريف) والصافي، وكاش/تطبيق
+  function ledger(L) {
+    const o = {};
+    const g = p => o[p] || (o[p] = { transfer: 0, sell: 0, buy: 0, expense: 0, withdraw: 0, cash: 0, app: 0 });
+    for (const e of L) {
+      const p = e.person || (e.t === 'withdraw' ? '_pool' : null);
+      if (!p) continue;
+      const r = g(p), m = e.method === 'app' ? 'app' : 'cash';
+      if (e.t === 'transfer' || e.t === 'sell') { r[e.t] += e.amount; r[m] += e.amount; }
+      else if (e.t === 'buy' || e.t === 'expense' || e.t === 'withdraw') { r[e.t] += e.amount; r[m] -= e.amount; }
+    }
+    for (const k in o) { const r = o[k]; r.recv = r.transfer + r.sell; r.paid = r.buy + r.expense + r.withdraw; r.net = r.recv - r.paid; }
+    return o;
+  }
+
   // فترات: closes = أوقات الإغلاق. آخر فترة مفتوحة.
   function periods(closes) {
     const cs = closes.slice().sort((a, b) => a - b);
@@ -114,7 +129,7 @@
     return out;
   }
 
-  const api = { num, round, live, voidedSet, fifo, balances, periods, stats, shares, merge };
+  const api = { num, round, live, voidedSet, fifo, balances, ledger, periods, stats, shares, merge };
   g.Gas = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
