@@ -11,6 +11,7 @@ const sgn = n => (n < -0.005 ? 'neg' : n > 0.005 ? 'pos' : '');
 
 let S = load();
 let R = 'home';
+let PID = null;
 let D = null;
 let authState = 'unknown';   // unknown | out | in | local | blocked
 let workersLoaded = false;
@@ -33,6 +34,7 @@ function derive() {
   D = { L, F, P, vset: G.voidedSet(S.entries), cur: P[P.length - 1] };
   D.curStats = G.stats(L, F, D.cur.from, D.cur.to);
   D.bal = G.balances(L);
+  D.led = G.ledger(L);
 }
 
 /* ---------- المزامنة وتسجيل الدخول ---------- */
@@ -147,8 +149,8 @@ function installApp() {
   $('modal').classList.add('on');
 }
 
-const TITLES = { home: 'نقطة الغاز', transfer: 'النقل', buy: 'الشراء', sell: 'البيع', more: 'المزيد', expense: 'المصاريف', money: 'أين المال', profits: 'الأرباح والسحب', periods: 'الفترات', people: 'العمال', backup: 'نسخ ومزامنة يدوية' };
-const SUB = ['expense', 'money', 'profits', 'periods', 'people', 'backup'];
+const TITLES = { home: 'نقطة الغاز', transfer: 'النقل', buy: 'الشراء', sell: 'البيع', more: 'المزيد', expense: 'المصاريف', money: 'أين المال', person: 'تفاصيل الشخص', profits: 'الأرباح والسحب', periods: 'الفترات', people: 'العمال', backup: 'نسخ ومزامنة يدوية' };
+const SUB = ['person', 'expense', 'money', 'profits', 'periods', 'people', 'backup'];
 
 function go(r) {
   if (r === 'whoami') { renderWho(); return; }
@@ -173,12 +175,13 @@ function render() {
   else if (['transfer', 'buy', 'sell', 'expense'].includes(R)) body = pageLedger(R);
   else if (R === 'more') body = pageMore();
   else if (R === 'money') body = pageMoney();
+  else if (R === 'person') body = pagePerson();
   else if (R === 'profits') body = pageProfits();
   else if (R === 'periods') body = pagePeriods();
   else if (R === 'people') body = pagePeople();
   else if (R === 'backup') body = pageBackup();
   const fab = ['transfer', 'buy', 'sell', 'expense'].includes(R) ? `<button class="fab" onclick="openForm('${R}')">+</button>` : '';
-  $('app').innerHTML = `<header>${sub ? '<button onclick="go(\'more\')">→ رجوع</button>' : ''}<h1>${TITLES[R]}</h1>${syncBadge()}${instBtn()}<button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
+  $('app').innerHTML = `<header>${sub ? `<button onclick="go('${R === 'person' ? 'money' : 'more'}')">→ رجوع</button>` : ''}<h1>${TITLES[R]}</h1>${syncBadge()}${instBtn()}<button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
   <main>${body}</main>${fab}
   <nav>${tabs.map(t => `<button class="${t[0] === active ? 'on' : ''}" onclick="go('${t[0]}')"><span class="i">${t[2]}</span>${t[1]}</button>`).join('')}</nav>`;
 }
@@ -328,20 +331,39 @@ function pageMore() {
   return `<div class="menu">${items.map(i => `<button onclick="go('${i[0]}')"><span>${i[1]}</span>${i[2]}</button>`).join('')}${out}</div>`;
 }
 
+function openPerson(id) { PID = id; go('person'); }
 function pageMoney() {
-  let tc = 0, ta = 0;
-  const rows = S.workers.filter(w => w.active !== false || (D.bal[w.id] && (Math.abs(D.bal[w.id].cash) > 0.005 || Math.abs(D.bal[w.id].app) > 0.005))).map(w => {
-    const b = D.bal[w.id] || { cash: 0, app: 0 };
-    tc += b.cash; ta += b.app;
-    const tot = b.cash + b.app;
-    return `<tr><td>${esc(w.name)}</td><td class="n ${sgn(b.cash)}">${fmt(b.cash)}</td><td class="n ${sgn(b.app)}">${fmt(b.app)}</td><td class="n ${sgn(tot)}"><b>${fmt(tot)}</b></td></tr>`;
+  const led = D.led;
+  const z = { recv: 0, paid: 0, net: 0 };
+  const visible = S.workers.filter(w => w.active !== false || (led[w.id] && (Math.abs(led[w.id].recv) + Math.abs(led[w.id].paid)) > 0.005));
+  let tr = 0, tp = 0;
+  const rows = visible.map(w => {
+    const r = led[w.id] || z;
+    tr += r.recv; tp += r.paid;
+    return `<tr onclick="openPerson('${w.id}')" style="cursor:pointer"><td>${esc(w.name || '(بلا اسم)')} ›</td><td class="n pos">${fmt(r.recv)}</td><td class="n neg">${fmt(r.paid)}</td><td class="n ${sgn(r.net)}"><b>${fmt(r.net)}</b></td></tr>`;
   }).join('');
-  const pool = D.bal._pool || { cash: 0, app: 0 };
-  tc += pool.cash; ta += pool.app;
-  const poolRow = (pool.cash || pool.app) ? `<tr><td>سحوبات الأرباح</td><td class="n neg">${fmt(pool.cash)}</td><td class="n neg">${fmt(pool.app)}</td><td class="n neg"><b>${fmt(pool.cash + pool.app)}</b></td></tr>` : '';
-  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">كاش</th><th class="n">تطبيق</th><th class="n">المجموع</th></tr></thead><tbody>${rows}${poolRow}
-  <tr><td><b>الصندوق الآن</b></td><td class="n">${fmt(tc)}</td><td class="n">${fmt(ta)}</td><td class="n"><b>${fmt(tc + ta)}</b></td></tr></tbody></table></div>
-  <p class="mut">الرصيد = ما استلمه الشخص − ما دفعه. الموجب معه مال للصندوق، والسالب له دين على الصندوق. وسحوبات الأرباح تُخصم من الصندوق العام ولا تُنسب لأحد.</p>`;
+  const pool = led._pool;
+  let poolRow = '';
+  if (pool) { tp += pool.paid; poolRow = `<tr><td>سحوبات الأرباح</td><td class="n">0</td><td class="n neg">${fmt(pool.paid)}</td><td class="n neg"><b>${fmt(-pool.paid)}</b></td></tr>`; }
+  const tn = tr - tp;
+  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">استلم</th><th class="n">دفع</th><th class="n">الصافي</th></tr></thead><tbody>${rows}${poolRow}
+  <tr><td><b>الصندوق الآن</b></td><td class="n">${fmt(tr)}</td><td class="n">${fmt(tp)}</td><td class="n ${sgn(tn)}"><b>${fmt(tn)}</b></td></tr></tbody></table></div>
+  <p class="mut">اضغط على أي اسم لترى تفاصيل ما استلمه وما دفعه. الصافي = ما استلمه − ما دفعه: الموجب معه مال للصندوق، والسالب له دين على الصندوق. وسحوبات الأرباح تُخصم من الصندوق العام ولا تُنسب لأحد.</p>`;
+}
+function pagePerson() {
+  const w = S.workers.find(x => x.id === PID);
+  if (!w) return '<div class="card mut">لا يوجد</div>';
+  const r = D.led[PID] || { transfer: 0, sell: 0, buy: 0, expense: 0, recv: 0, paid: 0, net: 0, cash: 0, app: 0 };
+  const items = S.entries.filter(e => e.person === PID && ['transfer', 'sell', 'buy', 'expense'].includes(e.t)).sort((x, y) => y.ts - x.ts);
+  return `<div class="card"><b style="font-size:18px">${esc(w.name || '(بلا اسم)')}</b>
+  <div class="mut">${r.net >= 0 ? 'معه من مال الصندوق' : 'له على الصندوق'}</div>
+  <div class="stat hi" style="margin-top:8px"><small>الصافي</small><b>${fmt(r.net)} ₪</b></div></div>
+  <div class="grid">
+  <div class="stat"><small>إجمالي ما استلمه</small><b class="pos">${fmt(r.recv)}</b><small>نقل ${fmt(r.transfer)} · بيع ${fmt(r.sell)}</small></div>
+  <div class="stat"><small>إجمالي ما دفعه</small><b class="neg">${fmt(r.paid)}</b><small>شراء ${fmt(r.buy)} · مصاريف ${fmt(r.expense)}</small></div>
+  <div class="stat"><small>الصافي كاش</small><b class="${sgn(r.cash)}">${fmt(r.cash)}</b></div>
+  <div class="stat"><small>الصافي تطبيق</small><b class="${sgn(r.app)}">${fmt(r.app)}</b></div></div>
+  <h2>عملياته</h2>${items.length ? items.map(card).join('') : '<div class="card mut">لا توجد عمليات</div>'}`;
 }
 
 function pageProfits() {
@@ -381,7 +403,7 @@ function closePeriod() {
 }
 
 function pagePeople() {
-  return `${S.workers.filter(w => !w.deleted).map(w => `<div class="card" style="${w.active === false ? 'opacity:.6' : ''}"><div class="row"><b>${esc(w.name)}${w.active === false ? ' <span class="badge">موقوف</span>' : ''}</b>
+  return `${S.workers.filter(w => !w.deleted).map(w => `<div class="card" style="${w.active === false ? 'opacity:.6' : ''}"><div class="row"><b>${esc(w.name || '(بلا اسم)')}${w.active === false ? ' <span class="badge">موقوف</span>' : ''}</b>
   <span><button class="btn sec sm" onclick="toggleW('${w.id}')">${w.active === false ? 'تفعيل' : 'إيقاف'}</button> <button class="btn red sm" onclick="removeW('${w.id}')">حذف</button></span></div>
   <label>نسبة من الأرباح % (فارغ = بالتساوي)</label><input type="number" inputmode="decimal" value="${w.pct || ''}" onchange="setPct('${w.id}',this.value)"></div>`).join('')}
   <div class="card"><label>إضافة عامل</label><input id="nw" type="text" placeholder="الاسم"><div style="height:8px"></div><button class="btn" onclick="addW()">إضافة</button></div>`;
