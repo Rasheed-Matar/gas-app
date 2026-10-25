@@ -1,5 +1,5 @@
 const CACHE = 'gas-app-v2';
-const FILES = ['./', './index.html', './app.js', './logic.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const FILES = ['./', './index.html', './app.js', './logic.js', './manifest.json', './icon-192.png', './icon-512.png'];m ,  ,qw ,
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
