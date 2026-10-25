@@ -54,7 +54,8 @@
     };
     for (const e of L) {
       if (e.t === 'transfer' || e.t === 'sell') add(e.person, e.method, e.amount);
-      else if (e.t === 'buy' || e.t === 'expense' || e.t === 'withdraw') add(e.person, e.method, -e.amount);
+      else if (e.t === 'buy' || e.t === 'expense') add(e.person, e.method, -e.amount);
+      else if (e.t === 'withdraw') add(e.person || '_pool', e.method, -e.amount); // السحب من الصندوق العام
     }
     return b;
   }
