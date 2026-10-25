@@ -1,5 +1,5 @@
-const CACHE = 'gas-app-v2';
-const FILES = ['./', './index.html', './app.js', './logic.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'gas-app-v3';
+const FILES = ['./', './index.html', './app.js', './logic.js', './sync.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -10,6 +10,9 @@ self.addEventListener('activate', e => {
 // الشبكة أولاً لتصل التحديثات، وعند انقطاع الإنترنت يعمل من الذاكرة
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const u = new URL(e.request.url);
+  // لا نتدخل في اتصالات Firestore/Auth، ونخزّن ملفات التطبيق ومكتبات Firebase فقط
+  if (u.origin !== self.location.origin && !u.href.startsWith('https://www.gstatic.com/firebasejs/')) return;
   e.respondWith(
     fetch(e.request).then(r => {
       const copy = r.clone();
