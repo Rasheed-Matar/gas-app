@@ -31,6 +31,28 @@ function derive() {
   D.bal = G.balances(L);
 }
 
+/* ---------- تثبيت التطبيق ---------- */
+let deferredInstall = null;
+const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+const instBtn = () => isStandalone() ? '' : '<button id="instBtn" onclick="installApp()">⬇️ تثبيت التطبيق</button>';
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredInstall = e; });
+window.addEventListener('appinstalled', () => { deferredInstall = null; const b = $('instBtn'); if (b) b.remove(); toast('تم تثبيت التطبيق'); });
+function installApp() {
+  if (deferredInstall) {
+    const p = deferredInstall; deferredInstall = null;
+    p.prompt();
+    if (p.userChoice) p.userChoice.then(r => { if (r.outcome === 'accepted') toast('جارٍ التثبيت...'); });
+    return;
+  }
+  $('sheet').innerHTML = `<h2 style="margin-top:0">تثبيت التطبيق</h2>
+  <div class="card"><b>أندرويد (كروم)</b><p class="mut">اضغط القائمة ⋮ أعلى المتصفح ثم اختر <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.</p>
+  <b>آيفون (سفاري)</b><p class="mut">اضغط زر المشاركة ثم <b>إضافة إلى الشاشة الرئيسية</b>.</p>
+  <b>الكمبيوتر (كروم)</b><p class="mut">اضغط رمز التثبيت في شريط العنوان، أو القائمة ⋮ ثم حفظ ومشاركة ثم تثبيت الصفحة كتطبيق.</p>
+  <p class="mut">إن لم يظهر الخيار فأغلق الصفحة وافتحها مرتين وأنت متصل بالإنترنت، وتأكد أنك في كروم وليس داخل تطبيق آخر.</p></div>
+  <button class="btn" onclick="closeForm()">حسناً</button>`;
+  $('modal').classList.add('on');
+}
+
 const TITLES = { home: 'نقطة الغاز', transfer: 'النقل', buy: 'الشراء', sell: 'البيع', more: 'المزيد', expense: 'المصاريف', money: 'أين المال', profits: 'الأرباح والسحب', periods: 'الفترات', people: 'العمال', backup: 'نسخ ومزامنة يدوية' };
 const SUB = ['expense', 'money', 'profits', 'periods', 'people', 'backup'];
 
@@ -56,13 +78,13 @@ function render() {
   else if (R === 'people') body = pagePeople();
   else if (R === 'backup') body = pageBackup();
   const fab = ['transfer', 'buy', 'sell', 'expense'].includes(R) ? `<button class="fab" onclick="openForm('${R}')">+</button>` : '';
-  $('app').innerHTML = `<header>${sub ? '<button onclick="go(\'more\')">→ رجوع</button>' : ''}<h1>${TITLES[R]}</h1><button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
+  $('app').innerHTML = `<header>${sub ? '<button onclick="go(\'more\')">→ رجوع</button>' : ''}<h1>${TITLES[R]}</h1>${instBtn()}<button onclick="go('whoami')">👤 ${esc(wname(S.me))}</button></header>
   <main>${body}</main>${fab}
   <nav>${tabs.map(t => `<button class="${t[0] === active ? 'on' : ''}" onclick="go('${t[0]}')"><span class="i">${t[2]}</span>${t[1]}</button>`).join('')}</nav>`;
 }
 
 function renderSetup() {
-  $('app').innerHTML = `<header><h1>نقطة الغاز</h1></header><main>
+  $('app').innerHTML = `<header><h1>نقطة الغاز</h1>${instBtn()}</header><main>
   <div class="card"><b>أهلاً بك 👋</b><p class="mut">اكتب أسماء الشباب الذين يعملون في النقطة، اسماً في كل سطر.</p>
   <textarea id="names" rows="6" placeholder="محمد&#10;فادي"></textarea>
   <div style="height:10px"></div><button class="btn" onclick="setupSave()">حفظ والمتابعة</button></div></main>`;
@@ -74,7 +96,7 @@ function setupSave() {
   S.me = null; save(); render();
 }
 function renderWho() {
-  $('app').innerHTML = `<header><h1>من أنت؟</h1></header><main><p class="mut">اختر اسمك ليُسجَّل باسمك كل ما تُدخله على هذا الجهاز.</p>
+  $('app').innerHTML = `<header><h1>من أنت؟</h1>${instBtn()}</header><main><p class="mut">اختر اسمك ليُسجَّل باسمك كل ما تُدخله على هذا الجهاز.</p>
   ${activeW().map(w => `<div class="menu"><button onclick="setMe('${w.id}')">👤 ${esc(w.name)}</button></div>`).join('')}</main>`;
 }
 function setMe(id) { S.me = id; save(); R = 'home'; render(); }
@@ -124,7 +146,7 @@ function card(e) {
     title = `استلم: ${esc(wname(e.person))}`;
     det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)}` + (sl && !v ? ` · الربح <b class="${sgn(sl.profit)}">${fmt(sl.profit)}</b>${sl.short > 0 ? ' <span class="neg">(تجاوز المخزون)</span>' : ''}` : '');
   } else if (e.t === 'expense') { title = `دفع: ${esc(wname(e.person))}`; }
-  else if (e.t === 'withdraw') { title = `سحب: ${esc(wname(e.to))}`; det = `سلّم المبلغ: ${esc(wname(e.person))}`; }
+  else if (e.t === 'withdraw') { title = `سحب: ${esc(wname(e.to))}`; det = e.person ? `سلّم المبلغ: ${esc(wname(e.person))}` : 'من الصندوق العام'; }
   return `<div class="card entry ${v ? 'void' : ''}"><div class="top"><span>${title}${m}</span><span>${fmt(e.amount)} ₪</span></div>
   ${det ? `<div class="mut">${det}</div>` : ''}${e.note ? `<div class="mut">${esc(e.note)}</div>` : ''}
   <div class="row mut" style="margin-top:6px"><span>${fmtD(e.ts)} · أدخله ${esc(wname(e.by))}</span>${v ? '<span>ملغاة</span>' : `<button class="btn sec sm" onclick="voidEntry('${e.id}')">إلغاء</button>`}</div></div>`;
@@ -143,8 +165,7 @@ function openForm(t) {
   const head = { transfer: 'نقل جديد', buy: 'شراء غاز', sell: 'بيع غاز', expense: 'مصروف', withdraw: 'سحب من الأرباح' }[t];
   const kgf = (t === 'buy' || t === 'sell');
   $('sheet').innerHTML = `<h2 style="margin-top:0">${head}</h2>
-  <label>${label}</label><select id="f_person">${opts(S.me)}</select>
-  ${t === 'withdraw' ? `<label>من سحب</label><select id="f_to">${opts(S.me)}</select>` : ''}
+  ${t === 'withdraw' ? `<label>من سحب نصيبه</label><select id="f_to">${opts(S.me)}</select>` : `<label>${label}</label><select id="f_person">${opts(S.me)}</select>`}
   ${kgf ? `<div class="two"><div><label>عدد الكيلوات</label><input id="f_kg" type="number" inputmode="decimal" step="any" oninput="calc('kg')"></div>
   <div><label>سعر الكيلو</label><input id="f_ppk" type="number" inputmode="decimal" step="any" oninput="calc('ppk')"></div></div>` : ''}
   <label>${kgf ? 'الإجمالي' : 'المبلغ'}</label><input id="f_amount" type="number" inputmode="decimal" step="any" oninput="calc('amount')">
@@ -178,9 +199,10 @@ function preview() {
   p.innerHTML = s.short > 0 ? `<div class="prev warn">المخزون الحالي ${fmt(D.F.stock)} كغ فقط، والكمية أكبر منه.</div>` : `<div class="prev">ربح هذا البيع: <b>${fmt(s.profit)} ₪</b> · التكلفة ${fmt(s.cost)} · المخزون بعده ${fmt(F2.stock)} كغ</div>`;
 }
 function saveForm(t) {
-  const person = $('f_person').value;
+  const person = $('f_person') ? $('f_person').value : undefined;
   const amount = G.num($('f_amount').value);
-  const e = { id: uid(), t, ts: new Date($('f_ts').value).getTime() || Date.now(), by: S.me, person, method: $('f_method').value, amount: G.round(amount, 2), note: $('f_note').value.trim() };
+  const e = { id: uid(), t, ts: new Date($('f_ts').value).getTime() || Date.now(), by: S.me, method: $('f_method').value, amount: G.round(amount, 2), note: $('f_note').value.trim() };
+  if (person) e.person = person;
   if (!(amount > 0)) return toast('اكتب مبلغاً صحيحاً');
   if (t === 'buy' || t === 'sell') {
     e.kg = G.num($('f_kg').value);
@@ -209,9 +231,12 @@ function pageMoney() {
     const tot = b.cash + b.app;
     return `<tr><td>${esc(w.name)}</td><td class="n ${sgn(b.cash)}">${fmt(b.cash)}</td><td class="n ${sgn(b.app)}">${fmt(b.app)}</td><td class="n ${sgn(tot)}"><b>${fmt(tot)}</b></td></tr>`;
   }).join('');
-  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">كاش</th><th class="n">تطبيق</th><th class="n">المجموع</th></tr></thead><tbody>${rows}
-  <tr><td><b>الإجمالي</b></td><td class="n">${fmt(tc)}</td><td class="n">${fmt(ta)}</td><td class="n"><b>${fmt(tc + ta)}</b></td></tr></tbody></table></div>
-  <p class="mut">الرصيد = ما استلمه الشخص − ما دفعه. الموجب معه مال للصندوق، والسالب له دين على الصندوق.</p>`;
+  const pool = D.bal._pool || { cash: 0, app: 0 };
+  tc += pool.cash; ta += pool.app;
+  const poolRow = (pool.cash || pool.app) ? `<tr><td>سحوبات الأرباح</td><td class="n neg">${fmt(pool.cash)}</td><td class="n neg">${fmt(pool.app)}</td><td class="n neg"><b>${fmt(pool.cash + pool.app)}</b></td></tr>` : '';
+  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">كاش</th><th class="n">تطبيق</th><th class="n">المجموع</th></tr></thead><tbody>${rows}${poolRow}
+  <tr><td><b>الصندوق الآن</b></td><td class="n">${fmt(tc)}</td><td class="n">${fmt(ta)}</td><td class="n"><b>${fmt(tc + ta)}</b></td></tr></tbody></table></div>
+  <p class="mut">الرصيد = ما استلمه الشخص − ما دفعه. الموجب معه مال للصندوق، والسالب له دين على الصندوق. وسحوبات الأرباح تُخصم من الصندوق العام ولا تُنسب لأحد.</p>`;
 }
 
 function pageProfits() {
