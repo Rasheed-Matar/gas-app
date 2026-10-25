@@ -217,8 +217,12 @@ function pageHome() {
   ${F.short > 0 ? `<div class="prev warn">تنبيه: بِيع ما يزيد عن المخزون بمقدار ${fmt(F.short)} كغ، راجع الشراء.</div>` : ''}
   <h2>النقل حسب العامل (الفترة الحالية)</h2>
   <div class="card">${per ? `<table><tbody>${per}</tbody></table>` : '<span class="mut">لا توجد عمليات نقل بعد</span>'}</div>
-  <h2>الدفعات المفتوحة</h2>
-  <div class="card">${F.open.length ? `<table><thead><tr><th>التاريخ</th><th class="n">المتبقي كغ</th><th class="n">سعر الكيلو</th></tr></thead><tbody>${F.open.map(b => `<tr><td>${fmtD(b.ts)}</td><td class="n">${fmt(b.left)} / ${fmt(b.kg)}</td><td class="n">${fmt(b.ppk)}</td></tr>`).join('')}</tbody></table>` : '<span class="mut">لا يوجد مخزون</span>'}</div>`;
+  <h2>تكلفة المخزون (المتوسط)</h2>
+  <div class="card"><table><tbody>
+  <tr><td>الكيلوات المتبقية</td><td class="n">${fmt(F.stock)} كغ</td></tr>
+  <tr><td>متوسط تكلفة الكيلو</td><td class="n">${fmt(F.avg)} ₪</td></tr>
+  <tr><td>قيمة المخزون</td><td class="n">${fmt(F.value)} ₪</td></tr></tbody></table>
+  <p class="mut">متوسط التكلفة = قيمة كل الغاز في الخزان ÷ كيلواته، ويتحدّث بعد كل شراء. وربح كل بيع = سعر البيع − (كيلوات البيع × هذا المتوسط).</p></div>`;
 }
 
 /* ---------- السجلات ---------- */
@@ -238,13 +242,12 @@ function card(e) {
   let title = '', det = '';
   if (e.t === 'transfer') { title = `استلم: ${esc(wname(e.person))}`; det = ''; }
   else if (e.t === 'buy') {
-    const b = D.F.batches[e.id];
     title = `دفع: ${esc(wname(e.person))}`;
-    det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)} · المتبقي من الدفعة ${b && !v ? fmt(b.left) : '—'} كغ`;
+    det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)}`;
   } else if (e.t === 'sell') {
     const sl = D.F.sales[e.id];
     title = `استلم: ${esc(wname(e.person))}`;
-    det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)}` + (sl && !v ? ` · الربح <b class="${sgn(sl.profit)}">${fmt(sl.profit)}</b>${sl.short > 0 ? ' <span class="neg">(تجاوز المخزون)</span>' : ''}` : '');
+    det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)}` + (sl && !v ? ` · تكلفة الكيلو ${fmt(sl.avg)} · الربح <b class="${sgn(sl.profit)}">${fmt(sl.profit)}</b>${sl.short > 0 ? ' <span class="neg">(تجاوز المخزون)</span>' : ''}` : '');
   } else if (e.t === 'expense') { title = `دفع: ${esc(wname(e.person))}`; }
   else if (e.t === 'withdraw') { title = `سحب: ${esc(wname(e.to))}`; det = e.person ? `سلّم المبلغ: ${esc(wname(e.person))}` : 'من الصندوق العام'; }
   return `<div class="card entry ${v ? 'void' : ''}"><div class="top"><span>${title}${m}</span><span>${fmt(e.amount)} ₪</span></div>
@@ -297,7 +300,7 @@ function preview() {
   const tmp = { id: '~', t: 'sell', ts: Date.now() + 1, kg: G.num(kg.value), amount: G.num(am.value) };
   const F2 = G.fifo(D.L.concat([tmp]));
   const s = F2.sales['~'];
-  p.innerHTML = s.short > 0 ? `<div class="prev warn">المخزون الحالي ${fmt(D.F.stock)} كغ فقط، والكمية أكبر منه.</div>` : `<div class="prev">ربح هذا البيع: <b>${fmt(s.profit)} ₪</b> · التكلفة ${fmt(s.cost)} · المخزون بعده ${fmt(F2.stock)} كغ</div>`;
+  p.innerHTML = s.short > 0 ? `<div class="prev warn">المخزون الحالي ${fmt(D.F.stock)} كغ فقط، والكمية أكبر منه.</div>` : `<div class="prev">ربح هذا البيع: <b>${fmt(s.profit)} ₪</b> · تكلفة الكيلو ${fmt(s.avg)} · التكلفة ${fmt(s.cost)} · المخزون بعده ${fmt(F2.stock)} كغ</div>`;
 }
 function saveForm(t) {
   const person = $('f_person') ? $('f_person').value : undefined;
