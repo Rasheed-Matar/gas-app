@@ -73,7 +73,7 @@ window.onRemote = (kind, items, confirmed) => {
     for (const w of items) {
       const l = S.workers.find(x => x.id === w.id);
       if (!l) { S.workers.push(w); changed = true; continue; }
-      for (const k of ['name', 'active', 'pct']) if (JSON.stringify(l[k]) !== JSON.stringify(w[k])) { if (w[k] === undefined) delete l[k]; else l[k] = w[k]; changed = true; }
+      for (const k of ['name', 'active', 'pct', 'deleted']) if (JSON.stringify(l[k]) !== JSON.stringify(w[k])) { if (w[k] === undefined) delete l[k]; else l[k] = w[k]; changed = true; }
     }
     if (confirmed || items.length) workersLoaded = true;
     if (confirmed && !S.workers.length) changed = true;
@@ -327,7 +327,7 @@ function pageMore() {
 
 function pageMoney() {
   let tc = 0, ta = 0;
-  const rows = S.workers.map(w => {
+  const rows = S.workers.filter(w => w.active !== false || (D.bal[w.id] && (Math.abs(D.bal[w.id].cash) > 0.005 || Math.abs(D.bal[w.id].app) > 0.005))).map(w => {
     const b = D.bal[w.id] || { cash: 0, app: 0 };
     tc += b.cash; ta += b.app;
     const tot = b.cash + b.app;
@@ -378,10 +378,17 @@ function closePeriod() {
 }
 
 function pagePeople() {
-  return `${S.workers.map(w => `<div class="card"><div class="row"><b>${esc(w.name)}</b>
-  <button class="btn sec sm" onclick="toggleW('${w.id}')">${w.active === false ? 'تفعيل' : 'إيقاف'}</button></div>
+  return `${S.workers.filter(w => !w.deleted).map(w => `<div class="card" style="${w.active === false ? 'opacity:.6' : ''}"><div class="row"><b>${esc(w.name)}${w.active === false ? ' <span class="badge">موقوف</span>' : ''}</b>
+  <span><button class="btn sec sm" onclick="toggleW('${w.id}')">${w.active === false ? 'تفعيل' : 'إيقاف'}</button> <button class="btn red sm" onclick="removeW('${w.id}')">حذف</button></span></div>
   <label>نسبة من الأرباح % (فارغ = بالتساوي)</label><input type="number" inputmode="decimal" value="${w.pct || ''}" onchange="setPct('${w.id}',this.value)"></div>`).join('')}
   <div class="card"><label>إضافة عامل</label><input id="nw" type="text" placeholder="الاسم"><div style="height:8px"></div><button class="btn" onclick="addW()">إضافة</button></div>`;
+}
+function removeW(id) {
+  const w = S.workers.find(x => x.id === id); if (!w) return;
+  const used = S.entries.some(e => e.person === id || e.to === id || e.by === id);
+  if (used) return alert('لا يمكن حذف «' + w.name + '» لأن له عمليات مسجّلة، حتى لا تضيع سجلاتك.\nاستخدم «إيقاف» ليختفي من القوائم ويبقى في السجل.');
+  if (!confirm('حذف «' + w.name + '» نهائياً؟')) return;
+  w.deleted = true; w.active = false; sy('pushWorker', w); save(); render(); toast('تم الحذف');
 }
 function toggleW(id) { const w = S.workers.find(x => x.id === id); w.active = w.active === false; sy('pushWorker', w); save(); render(); }
 function setPct(id, v) { const w = S.workers.find(x => x.id === id); w.pct = G.num(v) || 0; sy('pushWorker', w); save(); toast('تم'); }
