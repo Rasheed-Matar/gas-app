@@ -93,24 +93,32 @@ function renderBlocked() {
 }
 function renderLogin() {
   let em = ''; try { em = localStorage.getItem('gas_email') || ''; } catch (e) { }
-  $('app').innerHTML = `<header><h1>نقطة الغاز</h1>${instBtn()}</header><main><div class="card"><b>تسجيل الدخول</b>
-  <p class="mut">أدخل بريد الفريق وكلمة السر (مرة واحدة على كل جهاز).</p>
-  <label>البريد</label><input id="lg_e" type="email" dir="ltr" value="${esc(em)}" autocomplete="username">
-  <label>كلمة السر</label><input id="lg_p" type="password" dir="ltr" autocomplete="current-password">
-  <div id="lg_m" class="prev warn" style="display:none"></div><div style="height:10px"></div>
-  <button class="btn" id="lg_b" onclick="doLogin()">دخول</button></div></main>`;
+  $('app').innerHTML = `<div class="login"><form class="lcard" onsubmit="doLogin(event)" autocomplete="on">
+  <div class="logo"><img src="icon-192.png" alt=""></div>
+  <h1>نقطة الغاز</h1>
+  <p class="sub">إدارة النقل والشراء والبيع بدقة</p>
+  <div class="fld"><span class="ic">✉️</span><input id="lg_e" type="email" dir="ltr" placeholder="البريد الإلكتروني" value="${esc(em)}" autocomplete="username" required></div>
+  <div class="fld"><span class="ic">🔒</span><input id="lg_p" type="password" dir="ltr" placeholder="كلمة سر الفريق" autocomplete="current-password" required>
+  <button type="button" class="eye" onclick="togglePw()" aria-label="إظهار كلمة السر">👁</button></div>
+  <div id="lg_m" class="lerr" style="display:none"></div>
+  <button class="lbtn" id="lg_b" type="submit">دخول</button>
+  <p class="hint">يُطلب الدخول مرة واحدة على كل جهاز</p>
+  ${isStandalone() ? '' : '<button type="button" class="linkb" onclick="installApp()">⬇️ تثبيت التطبيق على جهازك</button>'}
+  </form></div>`;
 }
+function togglePw() { const p = $('lg_p'); p.type = p.type === 'password' ? 'text' : 'password'; }
 function lgErr(m) { const el = $('lg_m'); if (el) { el.textContent = m; el.style.display = 'block'; } }
-async function doLogin() {
+async function doLogin(ev) {
+  if (ev && ev.preventDefault) ev.preventDefault();
   const e = $('lg_e').value.trim(), p = $('lg_p').value;
   if (!e || !p) return lgErr('اكتب البريد وكلمة السر');
   if (!window.Sync) return lgErr('يلزم اتصال بالإنترنت لتحميل نظام الدخول');
-  $('lg_b').disabled = true;
+  $('lg_b').disabled = true; $('lg_b').textContent = 'جارٍ الدخول...';
   try {
     await window.Sync.login(e, p);
     try { localStorage.setItem('gas_email', e); } catch (_) { }
   } catch (err) {
-    $('lg_b').disabled = false;
+    $('lg_b').disabled = false; $('lg_b').textContent = 'دخول';
     const c = (err && err.code) || '';
     lgErr(/invalid|wrong|not-found|credential/.test(c) ? 'البريد أو كلمة السر غير صحيحة' : /network/.test(c) ? 'تعذّر الاتصال بالإنترنت' : 'تعذّر الدخول: ' + c);
   }
