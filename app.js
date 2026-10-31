@@ -35,6 +35,7 @@ function derive() {
   D.curStats = G.stats(L, F, D.cur.from, D.cur.to);
   D.bal = G.balances(L);
   D.led = G.ledger(L);
+  D.cap = G.capital(L, F);
 }
 
 /* ---------- المزامنة وتسجيل الدخول ---------- */
@@ -149,8 +150,8 @@ function installApp() {
   $('modal').classList.add('on');
 }
 
-const TITLES = { home: 'نقطة الغاز', transfer: 'النقل', buy: 'الشراء', sell: 'البيع', more: 'المزيد', expense: 'المصاريف', money: 'أين المال', person: 'تفاصيل الشخص', profits: 'الأرباح والسحب', periods: 'الفترات', people: 'العمال', backup: 'نسخ ومزامنة يدوية' };
-const SUB = ['person', 'expense', 'money', 'profits', 'periods', 'people', 'backup'];
+const TITLES = { home: 'نقطة الغاز', transfer: 'النقل', buy: 'الشراء', sell: 'البيع', more: 'المزيد', expense: 'المصاريف', money: 'أين المال', person: 'تفاصيل الشخص', capital: 'رأس المال والربح', profits: 'الأرباح والسحب', periods: 'الفترات', people: 'العمال', backup: 'نسخ ومزامنة يدوية' };
+const SUB = ['capital', 'person', 'expense', 'money', 'profits', 'periods', 'people', 'backup'];
 
 function go(r) {
   if (r === 'whoami') { renderWho(); return; }
@@ -176,6 +177,7 @@ function render() {
   else if (R === 'more') body = pageMore();
   else if (R === 'money') body = pageMoney();
   else if (R === 'person') body = pagePerson();
+  else if (R === 'capital') body = pageCapital();
   else if (R === 'profits') body = pageProfits();
   else if (R === 'periods') body = pagePeriods();
   else if (R === 'people') body = pagePeople();
@@ -252,6 +254,7 @@ function card(e) {
     title = `استلم: ${esc(wname(e.person))}`;
     det = `${fmt(e.kg)} كغ × ${fmt(e.amount / e.kg)}` + (sl && !v ? ` · تكلفة الكيلو ${fmt(sl.avg)} · الربح <b class="${sgn(sl.profit)}">${fmt(sl.profit)}</b>${sl.short > 0 ? ' <span class="neg">(تجاوز المخزون)</span>' : ''}` : '');
   } else if (e.t === 'expense') { title = `دفع: ${esc(wname(e.person))}`; }
+  else if (e.t === 'repay') { title = `استرد رأس ماله: ${esc(wname(e.to))}`; det = e.person ? `سلّم المبلغ: ${esc(wname(e.person))}` : 'من الصندوق العام'; }
   else if (e.t === 'withdraw') { title = `سحب: ${esc(wname(e.to))}`; det = e.person ? `سلّم المبلغ: ${esc(wname(e.person))}` : 'من الصندوق العام'; }
   return `<div class="card entry ${v ? 'void' : ''}"><div class="top"><span>${title}${m}</span><span>${fmt(e.amount)} ₪</span></div>
   ${det ? `<div class="mut">${det}</div>` : ''}${e.note ? `<div class="mut">${esc(e.note)}</div>` : ''}
@@ -265,14 +268,18 @@ function voidEntry(id) {
 }
 
 /* ---------- النماذج ---------- */
-function openForm(t) {
+function openForm(t, pre) {
   const ws = activeW();
   const opts = sel => ws.map(w => `<option value="${w.id}" ${w.id === sel ? 'selected' : ''}>${esc(w.name)}</option>`).join('');
-  const label = { transfer: 'من استلم الأجرة', buy: 'من دفع الثمن', sell: 'من استلم الثمن', expense: 'من دفع المصروف', withdraw: 'من سلّم المبلغ' }[t];
-  const head = { transfer: 'نقل جديد', buy: 'شراء غاز', sell: 'بيع غاز', expense: 'مصروف', withdraw: 'سحب من الأرباح' }[t];
+  const label = { transfer: 'من استلم الأجرة', buy: 'من دفع الثمن', sell: 'من استلم الثمن', expense: 'من دفع المصروف', withdraw: 'من سلّم المبلغ', repay: 'من سلّم المبلغ' }[t];
+  const head = { transfer: 'نقل جديد', buy: 'شراء غاز', sell: 'بيع غاز', expense: 'مصروف', withdraw: 'سحب من الأرباح', repay: 'رد رأس المال' }[t];
   const kgf = (t === 'buy' || t === 'sell');
   $('sheet').innerHTML = `<h2 style="margin-top:0">${head}</h2>
-  ${t === 'withdraw' ? `<label>من سحب نصيبه</label><select id="f_to">${opts(S.me)}</select>` : `<label>${label}</label><select id="f_person">${opts(S.me)}</select>`}
+  ${t === 'withdraw' ? `<label>من سحب نصيبه</label><select id="f_to">${opts(S.me)}</select>`
+    : t === 'repay' ? `<label>من استرد رأس ماله</label><select id="f_to">${opts(S.me)}</select>
+  <label>من سلّم المبلغ</label><select id="f_person"><option value="">الصندوق العام (دون تحديد شخص)</option>${opts('')}</select>
+  <div class="mut">رد رأس المال يعيد لمن دفع ثمن الغاز ما دفعه، ولا يُحسب ربحاً ولا سحباً.</div>`
+    : `<label>${label}</label><select id="f_person">${opts(S.me)}</select>`}
   ${kgf ? `<div class="two"><div><label>عدد الكيلوات</label><input id="f_kg" type="number" inputmode="decimal" step="any" oninput="calc('kg')"></div>
   <div><label>سعر الكيلو</label><input id="f_ppk" type="number" inputmode="decimal" step="any" oninput="calc('ppk')"></div></div>` : ''}
   <label>${kgf ? 'الإجمالي' : 'المبلغ'}</label><input id="f_amount" type="number" inputmode="decimal" step="any" oninput="calc('amount')">
@@ -282,6 +289,7 @@ function openForm(t) {
   <div id="prev"></div>
   <div style="height:12px"></div>
   <div class="two"><button class="btn" id="f_save" onclick="saveForm('${t}')">حفظ</button><button class="btn sec" onclick="closeForm()">إلغاء</button></div>`;
+  if (pre) { if (pre.to && $('f_to')) $('f_to').value = pre.to; if (pre.amount > 0) $('f_amount').value = G.round(pre.amount, 2); }
   $('modal').classList.add('on');
 }
 function closeForm() { $('modal').classList.remove('on'); if (pendingRender) { pendingRender = false; render(); } }
@@ -320,13 +328,17 @@ function saveForm(t) {
     }
   }
   if (t === 'withdraw') e.to = $('f_to').value;
+  if (t === 'repay') {
+    e.to = $('f_to').value;
+    if (e.person && e.person === e.to) return toast('لا يمكن أن يسلّم الشخص المبلغ لنفسه');
+  }
   $('f_save').disabled = true;
   S.entries.push(e); sy('pushEntry', e); save(); closeForm(); render(); toast('تم الحفظ');
 }
 
 /* ---------- المزيد ---------- */
 function pageMore() {
-  const items = [['expense', '🧾', 'المصاريف'], ['money', '👛', 'أين المال'], ['profits', '📈', 'الأرباح والسحب'], ['periods', '🗓️', 'الفترات والتسوية'], ['people', '👥', 'العمال'], ['backup', '💾', 'نسخ ومزامنة يدوية']];
+  const items = [['capital', '💼', 'رأس المال والربح'], ['expense', '🧾', 'المصاريف'], ['money', '👛', 'أين المال'], ['profits', '📈', 'الأرباح والسحب'], ['periods', '🗓️', 'الفترات والتسوية'], ['people', '👥', 'العمال'], ['backup', '💾', 'نسخ ومزامنة يدوية']];
   const out = authState === 'in' ? '<button onclick="logout()"><span>🚪</span>تسجيل الخروج من المزامنة</button>' : '';
   return `<div class="menu">${items.map(i => `<button onclick="go('${i[0]}')"><span>${i[1]}</span>${i[2]}</button>`).join('')}${out}</div>`;
 }
@@ -334,27 +346,61 @@ function pageMore() {
 function openPerson(id) { PID = id; go('person'); }
 function pageMoney() {
   const led = D.led;
-  const z = { recv: 0, paid: 0, net: 0 };
-  const visible = S.workers.filter(w => w.active !== false || (led[w.id] && (Math.abs(led[w.id].recv) + Math.abs(led[w.id].paid)) > 0.005));
-  let tr = 0, tp = 0;
+  const z = { recv: 0, paid: 0, settle: 0, net: 0 };
+  const visible = S.workers.filter(w => w.active !== false || (led[w.id] && (Math.abs(led[w.id].recv) + Math.abs(led[w.id].paid) + Math.abs(led[w.id].settle)) > 0.005));
+  let tr = 0, tp = 0, ts = 0;
   const rows = visible.map(w => {
     const r = led[w.id] || z;
-    tr += r.recv; tp += r.paid;
-    return `<tr onclick="openPerson('${w.id}')" style="cursor:pointer"><td>${esc(w.name || '(بلا اسم)')} ›</td><td class="n pos">${fmt(r.recv)}</td><td class="n neg">${fmt(r.paid)}</td><td class="n ${sgn(r.net)}"><b>${fmt(r.net)}</b></td></tr>`;
+    tr += r.recv; tp += r.paid; ts += r.settle;
+    return `<tr onclick="openPerson('${w.id}')" style="cursor:pointer"><td>${esc(w.name || '(بلا اسم)')} ›</td><td class="n pos">${fmt(r.recv)}</td><td class="n neg">${fmt(r.paid)}</td><td class="n ${sgn(r.settle)}">${fmt(r.settle)}</td><td class="n ${sgn(r.net)}"><b>${fmt(r.net)}</b></td></tr>`;
   }).join('');
   const pool = led._pool;
   let poolRow = '';
-  if (pool) { tp += pool.paid; poolRow = `<tr><td>سحوبات الأرباح</td><td class="n">0</td><td class="n neg">${fmt(pool.paid)}</td><td class="n neg"><b>${fmt(-pool.paid)}</b></td></tr>`; }
-  const tn = tr - tp;
-  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">استلم</th><th class="n">دفع</th><th class="n">الصافي</th></tr></thead><tbody>${rows}${poolRow}
-  <tr><td><b>الصندوق الآن</b></td><td class="n">${fmt(tr)}</td><td class="n">${fmt(tp)}</td><td class="n ${sgn(tn)}"><b>${fmt(tn)}</b></td></tr></tbody></table></div>
-  <p class="mut">اضغط على أي اسم لترى تفاصيل ما استلمه وما دفعه. الصافي = ما استلمه − ما دفعه: الموجب معه مال للصندوق، والسالب له دين على الصندوق. وسحوبات الأرباح تُخصم من الصندوق العام ولا تُنسب لأحد.</p>`;
+  if (pool) { tp += pool.paid; ts += pool.settle; poolRow = `<tr><td>الصندوق العام<div class="mut">سحوبات الأرباح ورد رأس المال</div></td><td class="n">0</td><td class="n neg">${fmt(pool.paid)}</td><td class="n ${sgn(pool.settle)}">${fmt(pool.settle)}</td><td class="n neg"><b>${fmt(pool.net)}</b></td></tr>`; }
+  const tn = tr - tp + ts;
+  return `<div class="card"><table><thead><tr><th>الاسم</th><th class="n">استلم</th><th class="n">دفع</th><th class="n">تسويات</th><th class="n">الصافي</th></tr></thead><tbody>${rows}${poolRow}
+  <tr><td><b>الصندوق الآن</b></td><td class="n">${fmt(tr)}</td><td class="n">${fmt(tp)}</td><td class="n">${fmt(ts)}</td><td class="n ${sgn(tn)}"><b>${fmt(tn)}</b></td></tr></tbody></table></div>
+  <div class="two"><button class="btn" onclick="openForm('repay')">↩️ رد رأس المال</button><button class="btn sec" onclick="go('capital')">💼 رأس المال والربح</button></div>
+  <p class="mut">اضغط على أي اسم لترى تفاصيله. الصافي = استلم − دفع + تسويات. الموجب معه مال للصندوق، والسالب له دين على الصندوق (دفع ولم يُسترد له). وعمود التسويات هو رد رأس المال، مجموعه صفر دائماً لأنه انتقال داخلي لا يغيّر الربح.</p>`;
+}
+function pageCapital() {
+  const c = D.cap;
+  const row = (l, v, cls, sub) => `<tr><td>${l}${sub ? `<div class="mut">${sub}</div>` : ''}</td><td class="n ${cls || ''}">${fmt(v)}</td></tr>`;
+  const left = c.left;
+  const verdict = left > 0.005 ? 'ربح متبقٍ' : left < -0.005 ? 'عجز' : 'متعادل';
+  const owed = c.owed.map(o => `<tr><td>${esc(wname(o.id))}</td><td class="n neg">${fmt(o.amount)}</td><td class="n"><button class="btn sec sm" onclick="openForm('repay',{to:'${o.id}',amount:${G.round(o.amount, 2)}})">رد</button></td></tr>`).join('');
+  const reps = S.entries.filter(e => e.t === 'repay').sort((x, y) => y.ts - x.ts);
+  return `<div class="stat ${left < -0.005 ? '' : 'hi'}" style="margin-bottom:10px"><small>${verdict} بعد السحوبات</small><b class="${left < -0.005 ? 'neg' : ''}">${fmt(left)} ₪</b></div>
+  ${left < -0.005 ? `<div class="prev warn">سُحب من الأرباح أكثر مما تحقق من ربح، أو ما زال الربح لم يتحقق لأن الغاز لم يُبَع بعد.</div>` : ''}
+  <h2>من الشراء إلى الربح</h2>
+  <div class="card"><table><tbody>
+  ${row('رأس المال المدفوع في الشراء', c.buy, '', fmt(c.buyKg) + ' كغ')}
+  ${row('منه: غاز ما زال في الخزان', c.stockValue, '', fmt(c.stockKg) + ' كغ بمتوسط ' + fmt(D.F.avg) + ' للكيلو')}
+  ${row('منه: تكلفة ما بِيع', c.cogs)}
+  ${row('إيراد البيع', c.sell, '', fmt(c.sellKg) + ' كغ')}
+  ${row('ربح البيع (الإيراد − التكلفة)', c.sellProfit, sgn(c.sellProfit))}
+  ${row('+ أجور النقل', c.transfer)}
+  ${row('− المصاريف', c.expense)}
+  <tr><td><b>صافي الربح</b></td><td class="n ${sgn(c.profit)}"><b>${fmt(c.profit)}</b></td></tr>
+  ${row('− ما سُحب من الأرباح', c.withdraw)}
+  <tr><td><b>${verdict}</b></td><td class="n ${sgn(left)}"><b>${fmt(left)}</b></td></tr></tbody></table>
+  <p class="mut">الغاز الذي لم يُبَع بعد لا يُحسب ربحاً: رأسماله ما زال في الخزان. فإن كان العجز بسبب مخزون كبير فسيزول بالبيع.</p></div>
+  <h2>التحقق من الحساب</h2>
+  <div class="card"><table><tbody>
+  ${row('الصندوق الآن (استلم − دفع)', c.cashNet, sgn(c.cashNet))}
+  ${row('+ قيمة الغاز في الخزان', c.stockValue)}
+  <tr><td><b>= ${verdict}</b></td><td class="n ${sgn(c.equity)}"><b>${fmt(c.equity)}</b></td></tr></tbody></table>
+  <p class="${Math.abs(c.diff) < 0.01 ? 'pos' : 'neg'}">${Math.abs(c.diff) < 0.01 ? '✔ الرقمان متطابقان، فالحساب سليم.' : '⚠ الرقمان مختلفان بمقدار ' + fmt(c.diff) + '، راجع العمليات.'}</p></div>
+  <h2>رأس المال المستحق رده</h2>
+  <div class="card">${owed ? `<table><thead><tr><th>الاسم</th><th class="n">له على الصندوق</th><th></th></tr></thead><tbody>${owed}</tbody></table>` : '<span class="mut">لا يوجد: كل من دفع استرد ما دفعه.</span>'}
+  <div style="height:8px"></div><button class="btn" onclick="openForm('repay')">↩️ تسجيل رد رأس المال</button></div>
+  <h2>سجل رد رأس المال</h2>${reps.length ? reps.map(card).join('') : '<div class="card mut">لا توجد عمليات رد بعد</div>'}`;
 }
 function pagePerson() {
   const w = S.workers.find(x => x.id === PID);
   if (!w) return '<div class="card mut">لا يوجد</div>';
-  const r = D.led[PID] || { transfer: 0, sell: 0, buy: 0, expense: 0, recv: 0, paid: 0, net: 0, cash: 0, app: 0 };
-  const items = S.entries.filter(e => e.person === PID && ['transfer', 'sell', 'buy', 'expense'].includes(e.t)).sort((x, y) => y.ts - x.ts);
+  const r = D.led[PID] || { transfer: 0, sell: 0, buy: 0, expense: 0, recv: 0, paid: 0, repayIn: 0, repayOut: 0, settle: 0, net: 0, cash: 0, app: 0 };
+  const items = S.entries.filter(e => (e.person === PID && ['transfer', 'sell', 'buy', 'expense', 'repay'].includes(e.t)) || (e.t === 'repay' && e.to === PID)).sort((x, y) => y.ts - x.ts);
   return `<div class="card"><b style="font-size:18px">${esc(w.name || '(بلا اسم)')}</b>
   <div class="mut">${r.net >= 0 ? 'معه من مال الصندوق' : 'له على الصندوق'}</div>
   <div class="stat hi" style="margin-top:8px"><small>الصافي</small><b>${fmt(r.net)} ₪</b></div></div>
@@ -363,6 +409,7 @@ function pagePerson() {
   <div class="stat"><small>إجمالي ما دفعه</small><b class="neg">${fmt(r.paid)}</b><small>شراء ${fmt(r.buy)} · مصاريف ${fmt(r.expense)}</small></div>
   <div class="stat"><small>الصافي كاش</small><b class="${sgn(r.cash)}">${fmt(r.cash)}</b></div>
   <div class="stat"><small>الصافي تطبيق</small><b class="${sgn(r.app)}">${fmt(r.app)}</b></div></div>
+  <div class="card"><div class="row"><span>رد رأس المال</span><b class="${sgn(r.settle)}">${fmt(r.settle)}</b></div><div class="mut">استرد ${fmt(r.repayIn)} · سلّم ${fmt(r.repayOut)}</div>${r.net < -0.005 ? `<div style="height:8px"></div><button class="btn" onclick="openForm('repay',{to:'${PID}',amount:${G.round(-r.net, 2)}})">↩️ رد ${fmt(-r.net)} ₪ له</button>` : ''}</div>
   <h2>عملياته</h2>${items.length ? items.map(card).join('') : '<div class="card mut">لا توجد عمليات</div>'}`;
 }
 
