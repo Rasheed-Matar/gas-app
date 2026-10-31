@@ -38,35 +38,65 @@
     return { sales, stock, value, avg: stock > EPS ? value / stock : 0, short, batches: {}, open: [] };
   }
 
-  // أين المال: رصيد كل شخص = ما استلمه − ما دفعه (كاش/تطبيق)
-  function balances(L) {
-    const b = {};
-    const add = (p, m, x) => {
-      if (!p) return;
-      const o = b[p] || (b[p] = { cash: 0, app: 0 });
-      o[m === 'app' ? 'app' : 'cash'] += x;
-    };
-    for (const e of L) {
-      if (e.t === 'transfer' || e.t === 'sell') add(e.person, e.method, e.amount);
-      else if (e.t === 'buy' || e.t === 'expense') add(e.person, e.method, -e.amount);
-      else if (e.t === 'withdraw') add(e.person || '_pool', e.method, -e.amount); // السحب من الصندوق العام
-    }
-    return b;
-  }
-
-  // تفصيل كل شخص: ما استلمه (نقل + بيع) وما دفعه (شراء + مصاريف) والصافي، وكاش/تطبيق
+  // تفصيل كل شخص: ما استلمه (نقل + بيع) وما دفعه (شراء + مصاريف + سحب) والتسويات (رد رأس المال)
+  // الصافي = استلم − دفع + (ما استرده − ما سلّمه). والتسويات مجموعها صفر دائماً لأنها انتقال داخلي.
   function ledger(L) {
     const o = {};
-    const g = p => o[p] || (o[p] = { transfer: 0, sell: 0, buy: 0, expense: 0, withdraw: 0, cash: 0, app: 0 });
+    const g = p => o[p] || (o[p] = { transfer: 0, sell: 0, buy: 0, expense: 0, withdraw: 0, repayIn: 0, repayOut: 0, cash: 0, app: 0 });
     for (const e of L) {
+      const m = e.method === 'app' ? 'app' : 'cash';
+      if (e.t === 'repay') {
+        if (e.to) { const r = g(e.to); r.repayIn += e.amount; r[m] += e.amount; }
+        const r2 = g(e.person || '_pool'); r2.repayOut += e.amount; r2[m] -= e.amount;
+        continue;
+      }
       const p = e.person || (e.t === 'withdraw' ? '_pool' : null);
       if (!p) continue;
-      const r = g(p), m = e.method === 'app' ? 'app' : 'cash';
+      const r = g(p);
       if (e.t === 'transfer' || e.t === 'sell') { r[e.t] += e.amount; r[m] += e.amount; }
       else if (e.t === 'buy' || e.t === 'expense' || e.t === 'withdraw') { r[e.t] += e.amount; r[m] -= e.amount; }
     }
-    for (const k in o) { const r = o[k]; r.recv = r.transfer + r.sell; r.paid = r.buy + r.expense + r.withdraw; r.net = r.recv - r.paid; }
+    for (const k in o) {
+      const r = o[k];
+      r.recv = r.transfer + r.sell; r.paid = r.buy + r.expense + r.withdraw;
+      r.settle = r.repayIn - r.repayOut; r.net = r.recv - r.paid + r.settle;
+    }
     return o;
+  }
+
+  // أين المال: رصيد كل شخص كاش/تطبيق
+  function balances(L) {
+    const led = ledger(L), b = {};
+    for (const k in led) b[k] = { cash: led[k].cash, app: led[k].app };
+    return b;
+  }
+
+  // رأس المال والربح: من الشراء إلى الربح المتبقي أو العجز
+  //   صافي الربح = ربح البيع + النقل − المصاريف
+  //   الربح المتبقي (أو العجز) = صافي الربح − ما سُحب
+  //   وهو يساوي: الصندوق الآن + قيمة الغاز في الخزان  (للتحقق من سلامة الحساب)
+  function capital(L, F) {
+    const r = { buy: 0, buyKg: 0, sell: 0, sellKg: 0, transfer: 0, expense: 0, withdraw: 0, repay: 0 };
+    for (const e of L) {
+      if (e.t === 'buy') { r.buy += e.amount; r.buyKg += e.kg; }
+      else if (e.t === 'sell') { r.sell += e.amount; r.sellKg += e.kg; }
+      else if (e.t === 'transfer') r.transfer += e.amount;
+      else if (e.t === 'expense') r.expense += e.amount;
+      else if (e.t === 'withdraw') r.withdraw += e.amount;
+      else if (e.t === 'repay') r.repay += e.amount;
+    }
+    r.cogs = Object.keys(F.sales).reduce((s, k) => s + F.sales[k].cost, 0);
+    r.sellProfit = r.sell - r.cogs;
+    r.profit = r.transfer + r.sellProfit - r.expense;
+    r.stockKg = F.stock; r.stockValue = F.value;
+    r.left = r.profit - r.withdraw;
+    const led = ledger(L);
+    r.cashNet = Object.keys(led).reduce((s, k) => s + led[k].net, 0);
+    r.equity = r.cashNet + F.value;
+    r.diff = r.equity - r.left;
+    // ما يستحقه أصحاب رأس المال (من دفع ولم يُسترد له)
+    r.owed = Object.keys(led).filter(k => k !== '_pool' && led[k].net < -0.005).map(k => ({ id: k, amount: -led[k].net }));
+    return r;
   }
 
   // فترات: closes = أوقات الإغلاق. آخر فترة مفتوحة.
@@ -129,7 +159,7 @@
     return out;
   }
 
-  const api = { num, round, live, voidedSet, fifo, balances, ledger, periods, stats, shares, merge };
+  const api = { num, round, live, voidedSet, fifo, balances, ledger, capital, periods, stats, shares, merge };
   g.Gas = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
